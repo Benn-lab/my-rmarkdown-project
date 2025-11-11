@@ -1,0 +1,688 @@
+---
+title: "Th17 inference"
+author: "Benn"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  ioslides_presentation: default
+  pdf_document: default
+  powerpoint_presentation: default
+  slidy_presentation: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+Loading the required libraries to perform this inference of Th17
+
+```{r packages}
+library(immunedeconv)
+library(GSVA)
+library(edgeR)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ComplexHeatmap)
+```
+
+I am going to prepare expression inputs
+
+```{r preparing normalized counts}
+#Reading in normalized counts
+normalized_counts <- read.delim("/home/benn/Desktop/RNAseq data/normal_vs_tumor_normalized_counts.txt", header = TRUE, row.names = 1)
+
+#Confirming
+head(rownames(normalized_counts))
+
+#Making sure all expression value are numeric
+normalized_counts[] <- lapply(normalized_counts, as.numeric)
+
+#Checking dimension and structure
+dim(normalized_counts)
+
+#Reattaching rownames
+rownames(normalized_counts) <- rownames(normalized_counts)
+
+#Removing any NAs or duplicated gene entries
+normalized_counts <- normalized_counts[!duplicated(rownames(normalized_counts)),]
+normalized_counts <- na.omit(normalized_counts)
+
+#Confirming the format matches the requirements
+str(normalized_counts)
+head(normalized_counts)
+
+#Converting to matrix
+expr_matrix <- as.matrix(normalized_counts)
+
+#Checking dimensions
+dim(expr_matrix)
+```
+
+**VERIFYING AND ALIGNING SAMPLES IN METADATA AND THE EXPRESSION MATRIX**
+
+I will read in metadata file containing the samples and specimen type. I will then confirm sample names match between expression matrix and the metadata, I will the drop any unmatched samples. In short, I need each column in the expression matrix to have a corresponding row in the metadata
+
+```{r Metadata file}
+#Reading in the metadata file
+metadata_tumor_normal <- read.csv("/home/benn/Desktop/RNAseq data/tumor-normal-RNAseq_kenya.csv", row.names = 1, check.names = FALSE)
+str(metadata_tumor_normal)
+
+#Removing the leading X in sample names of the columns in the expression matrix
+colnames(expr_matrix) <- sub("^X", "", colnames(expr_matrix))
+
+#Extracting the last three digits of the sample names in the expression matrix
+colnames(expr_matrix) <- sub(".*_(\\d+).*", "\\1", colnames(expr_matrix))
+
+#Doing the same for the metadata sample names
+rownames(metadata_tumor_normal) <- sub(".*?(\\d+)$", "\\1", rownames(metadata_tumor_normal))
+
+#Checking for overlap
+common_samples <- intersect(colnames(expr_matrix), rownames(metadata_tumor_normal))
+
+#Checking which one is missing why didn't it give 94 of 94
+setdiff(colnames(expr_matrix), rownames(metadata_tumor_normal))
+
+#Keep only the common samples in both the metadata and the expression matrix
+expr_matrix <- expr_matrix[, common_samples, drop = FALSE]
+#the same to the metadata
+metadata_tumor_normal <- metadata_tumor_normal[common_samples, , drop = FALSE]
+
+#Stop this analysis if not
+stopifnot(all(colnames(expr_matrix) == rownames(metadata_tumor_normal)))
+
+#Checking
+length(common_samples)
+```
+
+The above code chunk ensures that the expression matrix are clean and synchronized. Every column in expression matrix corresponds to exactly one row in the metadata. Now, this is ready for deconvolution.
+
+**DECONVOLUTION**
+
+In deconvolution, I will use immunedeconv package which integrates several popular methods like:
+xCell - which estimates immune/stromal enrichment scores
+CIBERSORT - which uses *reference* expression signatures for absolute immune cell fraction 
+and also EPIC, quantiseq and MCP-COUNTER.
+
+```{r Deconvolution}
+#Confirming methods available
+methods_available <- c("quantiseq", "epic", "timer", "mcp_counter", "xcell", "cibersort")
+print(methods_available)
+
+#Confirming the expression matrix
+is.numeric(expr_matrix)
+any(is.na(expr_matrix))
+
+#Deconvolution with xCell
+library(xCell)
+resultsfrom_xcell <- xCellAnalysis(expr_matrix)
+
+#Saving
+write.csv(resultsfrom_xcell, "xcell_results.csv")
+
+#Deconvolution with quantiseq
+resultsfrom_quantiseq <- deconvolute(expr_matrix, method = "quantiseq")
+
+#Saving
+write.csv(resultsfrom_quantiseq, "quantiseq_results.csv")
+
+#Deconvolution with Epic
+library(EPIC)
+resultsfrom_epic <- EPIC(bulk = expr_matrix)
+problematic_samples <- resultsfrom_epic$fit.gof[resultsfrom_epic$fit.gof$convergeCode != 0, ]
+problematic_samples
+#Viewing the cell-type fraction of the results
+head(resultsfrom_epic$cellFractions)
+
+#Deconvolution with MCP-counter
+library(MCPcounter)
+resultsfrom_mcp <- MCPcounter.estimate(expr_matrix, featuresType = "HUGO_symbols")
+head(resultsfrom_mcp)
+
+#saving
+write.csv(resultsfrom_mcp, "mcp_results.csv")
+
+```
+
+**COMBINING THE DECONVOLUTION RESULTS**
+
+Accurate characterization of the tumor immune microenvironment is critical for understanding tumor-immune interactions and their impact on *disease progression* and possible *therapeutic response*. However, different computational deconvolution algorithms such as xCell, quanTIseq, and MCP-counter use distinct statistical frameworks, marker sets, and reference matrices. Each method therefore capture complementary aspects of immune cell composition. To enhance robustness and biological confidence, the results from the three independent methods I used above i.e xCell, quantiseq, and mcp counter were combined and jointly visualized. This intergrative approach mitigates the limitations of any single algorithm and allows for cross-validation of immune-cell abundance estimates. *xCell* uses a gene signature–based enrichment method, providing relative enrichment scores for a broad spectrum of immune and stromal cell types. *quanTIseq* applies a constrained least-squares regression model, offering absolute cell fraction estimates while accounting for tumor purity. *MCP-counter* estimates immune and stromal cell abundance using marker gene expression derived from bulk RNA-seq, known for high specificity and reproducibility. I'll merge these outputs into a unified data matrix which will enable comparative visualization of immune infiltration across samples. I will visualize this with a heatmap which will maybe highlight concordant or divergent cell-type estimates between algorithms, providing deeper insight into immune heterogeneity and tumor-normal immune dynamics. This ensures my findings are not depedent on the bias of a single deconvolution framework.
+
+```{r Visualization}
+library(ComplexHeatmap)
+
+#Ensuring all results are data frames
+xcell_res <- as.data.frame(resultsfrom_xcell)
+quantiseq_res <- as.data.frame(resultsfrom_quantiseq)
+mcp_res <- as.data.frame(resultsfrom_mcp)
+
+#Checking dimensions of individual results
+dim(xcell_res)
+dim(quantiseq_res)
+dim(mcp_res)
+
+#Keeping only numeric parts for each method(gene and sample matrix)
+xcell_res_num <- xcell_res[sapply(xcell_res, is.numeric)]
+quantiseq_res_num <- quantiseq_res[sapply(quantiseq_res, is.numeric)]
+mcp_res_num <- mcp_res[sapply(mcp_res, is.numeric)]
+
+#Removing 'cell_type' column from quantiseq results
+if ("cell_type" %in% colnames(quantiseq_res)) {
+  quantiseq_res <- quantiseq_res[, !(colnames(quantiseq_res) == "cell_type")]
+}
+
+#Identifying common samples across all results
+common_samples <- Reduce(intersect, 
+                         list(colnames(xcell_res), 
+                              colnames(quantiseq_res),
+                              colnames(mcp_res)))
+
+cat("Common samples found:", length(common_samples), "\n")
+
+xcell_res_num <- xcell_res_num[, common_samples, drop = FALSE]
+quantiseq_res_num <- quantiseq_res_num[, common_samples, drop = FALSE]
+mcp_res_num <- mcp_res_num[, common_samples, drop = FALSE]
+
+#Combine by stacking methods
+combined_res_numeric <- rbind(
+  xcell_res_num,
+  quantiseq_res_num,
+  mcp_res_num
+)
+
+# Confirm structure
+cat("Combined dimensions:", dim(combined_res_numeric), "\n")
+
+#Preparing annotation for tumor/normal samples ---
+annotation_col <- data.frame(
+  Specimen = metadata_tumor_normal[colnames(combined_res_numeric), "Specimen"]
+)
+rownames(annotation_col) <- colnames(combined_res_numeric)
+
+#Confirming annotation counts
+table(annotation_col$Specimen)
+
+#Creating annotation dataframe
+annotation_col <- data.frame(
+  Specimen = metadata_tumor_normal[colnames(combined_res_numeric), "Specimen"]
+)
+rownames(annotation_col) <- colnames(combined_res_numeric)
+
+#Make sure the rownames of metadata match sample names (clean both sides)
+rownames(metadata_tumor_normal) <- sub("^X", "", rownames(metadata_tumor_normal))
+rownames(metadata_tumor_normal) <- sub(".*_(\\d+)$", "\\1", rownames(metadata_tumor_normal))
+
+#Keep only the matching samples in the same order as combined_res_numeric
+annotation_col <- metadata_tumor_normal[colnames(combined_res_numeric), , drop = FALSE]
+table(annotation_col$Specimen)
+
+# Confirm proper alignment
+cat("Annotation rows:", nrow(annotation_col), "Samples in combined:", ncol(combined_res_numeric), "\n")
+print(head(annotation_col))
+
+
+#Reordering samples: tumors first, then normal
+sample_order <- c(
+  rownames(annotation_col[annotation_col$Specimen == "tumor", , drop = FALSE ]),
+  rownames(annotation_col[annotation_col$Specimen == "normal", , drop = FALSE])
+)
+
+#Keep only valid matches
+sample_order <- intersect(sample_order, colnames(combined_res_numeric))
+
+
+#Keeping samples present in combined_res_numeric
+expr_for_plot <- combined_res_numeric[, sample_order, drop = FALSE]
+annotation_col <- annotation_col[sample_order, , drop = FALSE]
+
+#Verifying alignment
+cat("expr_for_plot dimensions:", dim(expr_for_plot), "\n")
+cat("Annotation matches:", identical(colnames(expr_for_plot), rownames(annotation_col)), "\n")
+table(annotation_col$Specimen)
+
+#Color scale
+library(circlize)
+col_fun <- colorRamp2(c(-2, 0, 2), c("navy", "white", "firebrick3"))
+
+#Adding color to the annotations
+ann_colors <- list(
+  Specimen = c(
+    "tumor" = "#E74C3C",   # red
+    "normal" = "#2ECC71"   # green
+  )
+)
+
+
+cat("Matrix dimensions:\n")
+print(dim(expr_for_plot))
+
+cat("\nPreview of expr_for_plot:\n")
+print(head(expr_for_plot[, 1:5]))
+
+head(colnames(xcell_res))
+head(colnames(quantiseq_res))
+head(colnames(mcp_res))
+dim(expr_for_plot)
+
+
+#Normalize each cell type across samples (z-score scaling) ---
+expr_for_plot_scaled <- t(scale(t(expr_for_plot)))
+
+#Replace any NA (from all-zero rows)
+expr_for_plot_scaled[is.na(expr_for_plot_scaled)] <- 0
+
+#Rebuilding the top annotation
+ha <- HeatmapAnnotation(
+  Specimen = annotation_col$Specimen,
+  col = list(Specimen = c("tumor" = "#E74C3C", "normal" = "#2ECC71")),
+  annotation_height = unit(0.5, "cm"),
+  show_annotation_name = TRUE,
+  gp = gpar(col = NA)
+)
+
+#Double-check counts match
+cat("Samples in annotation:", nrow(annotation_col), "\n")
+cat("Samples in heatmap:", ncol(expr_for_plot_scaled), "\n")
+stopifnot(ncol(expr_for_plot_scaled) == nrow(annotation_col))
+
+#Visualizing
+pdf("/home/benn/Desktop/Th17/combined_immune_Complexheatmap.pdf", 
+    width = 14, height = 10)
+
+Heatmap(
+  expr_for_plot_scaled,
+  name = "Relative Abundance(Z-score)",
+  top_annotation = ha,
+  col = colorRamp2(c(-2, 0, 2), c("navy", "white", "firebrick3")),
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  show_row_names = TRUE,
+  show_column_names = TRUE,
+  row_names_gp = gpar(fontsize = 6),
+  column_names_gp = gpar(fontsize = 7),
+  column_names_rot = 45,
+  row_title = "Immune Cell Types (xCell / quanTIseq / MCP-counter)",
+  column_title = "Samples (Tumor vs Normal)",
+  heatmap_legend_param = list(title_gp = gpar(fontsize = 10, fontface = "bold"))
+)
+
+dev.off()
+
+```
+
+
+**FUNCTIONAL PATHWAY SCORING**
+
+I will shift focus from general immune deconvolution to *functional pathway scoring* which is the right strategy for quantifying Th17-related transcriptional activity because no method explicitly estimated Th17 proportions. I will estimate Th17 related activity using two complementary, single-smaple signature scoring methods: GSVA or ssGSEA. I will use *molecular signature database* to find all pathways that mention Th17
+
+```{r Molecular signature database}
+library(GSVA)
+library(singscore)
+library(msigdbr)
+
+#Ensuring all the expression data is a numeric matrix
+expr <- as.matrix(expr_matrix)
+
+#Converting all gene symbols to uppercase to match MSigDB standards
+rownames(expr) <- toupper(rownames(expr))
+
+#Retrieving all human gene sets
+msigdb_human <- msigdbr(species = "Homo sapiens")
+
+#Filtering only those with Th17 in their name
+th17_sets <- msigdb_human |> 
+  filter(grepl("TH17", gs_name, ignore.case = TRUE)) |> 
+  select(gs_name, gene_symbol)
+
+#Check which pathways I got
+unique(th17_sets$gs_name)
+
+#Format the gene sets for GSVA
+th17_gene_sets <- th17_sets |> 
+  group_by(gs_name) |> 
+  summarise(genes = list(unique(gene_symbol))) |> 
+  tibble::deframe()
+
+#How many gene sets were collected?
+length(th17_gene_sets)
+```
+
+**GENE SET VARIATION ANALYSIS**
+
+GSVA is a non-parametric method that estimates how active a biological pathway or gene set is within each sample in my expression dataset. Instead of testing single genes one by one, GSVA looks at gene groups(pathways) like Th17 differentiation and computes a continuous enrichment score per sample. So instead of asking is gene X for example upregulated?, GSVA asks is the overall Th17 pathway more active in this tumor sample compared to normal.So how does GSVA works, it is provided with the gene expression matrix and a list o gene sets/pathways(all genes related to Th17 cells). GSVA ranks all genes in each sample. Foe each gene set, it checks whether its member genes tend to be up or down in that samples'ranked expression profile. The result is an enrichment score per pathway per sample. Which means high score means the pathwasy is active/upregulated in that sample, and low score is that the pathway is inactive/downregulated. GSVA is useful because it transforms gene-level data into pathway-level data, and then it captures sample-specific pathway activity.
+
+
+```{r GSVA}
+gsva_th17 <- gsva(expr,
+                  th17_gene_sets,
+                  method = "gsva",
+                  kcdf = "Gaussian")
+
+#Checking the output dimensions
+dim(gsva_th17)
+
+#Viewing the results
+head(gsva_th17)
+
+#Adding the tumor/normal labels
+group <- metadata_tumor_normal[colnames(gsva_th17), "Specimen"]
+
+#Confirming alignment
+table(group)
+
+#Visualizing Th17 activity across samples
+scaled_th17 <- t(scale(t(gsva_th17)))
+
+#Color annotations for tumor vs normal
+ann_colors <- list(Specimen = c("tumor" = "#E74C3C", "normal" = "#2ECC71"))
+annotation_col <- data.frame(Specimen = group)
+rownames(annotation_col) <- colnames(gsva_th17)
+
+#Plotting a heatmap
+pdf("/home/benn/Desktop/Th17/th17_pathway_gsva.pdf", width = 12, height = 8)
+pheatmap(
+  scaled_th17,
+  annotation_col = annotation_col,
+  annotation_colors = ann_colors,
+  color = colorRampPalette(c("navy", "white", "firebrick3"))(50),
+  main = "TH17 Pathway Activity (GSVA)",
+  fontsize_row = 8,
+  fontsize_col = 6,
+  clustering_method = "complete"
+)
+dev.off()
+
+
+
+```
+
+The heatmap generated represents:
+Each row correspond to a Th17-related gene set e.g GSE43955_TH0_VS_TGFB_IL6_TH17_ACT_CD4_TCELL_60H_UP etc
+Each column corresponds to one of our samples(either tumor or normal)
+The color scale(navy, white, firebrick) shows the GSVA enrichment scores(Z-scaled). Blue indicating lower Th17 pathway activity(negative GSVA score), white shows neutral/baseline activity, while red shows higher Th17 activity(positive GSVA score). From the heatmap plot, the tumor samples in red and normal samples in green show differential enrichment for several Th17-related pathways. Many Th17-upregulated signnatures display increased red intensity in tumor samples, suggesting Th17 pathway activation in tumors. Higher GSVA scores in tumor samples for Th17-related gene sets e.g WP_TH17_CELL_DIFFERENTIATION_PATHWAY, GSE14308_TH17_VS_NATURAL_TREG_UP) imply that enrichment of Th17 differentiation and effector functions in tumor tissues, possible proinflammatory microenvironment as Th17 cells secrete IL-17, IL-22, and IL-21 promoting angiogenesis and tumor progression
+
+```{r Statistical tests}
+stopifnot(exists("gsva_th17") || exists("scaled_th17"))
+GSVA_mat <- if (exists("gsva_th17")) gsva_th17 else scaled_th17
+cat("GSVA matrix dims (pathways x samples):", dim(GSVA_mat), "\n")
+cat("Metadata dims:", dim(metadata_tumor_normal), "\n")
+
+#Confirming matching sample names and order
+all(colnames(GSVA_mat) %in% rownames(metadata_tumor_normal)) ||
+  stop("Some GSVA samples are not present in metadata_tumor_normal rownames")
+
+#Creating group vector
+group_labels <- metadata_tumor_normal[colnames(GSVA_mat), "Specimen"]
+table(group_labels)
+```
+
+**PREPARING THE RESULT TABLE**
+
+I want a tidy data.frame with one row per pathway and columns reserved for p-values, medians, counts, and effect size.
+
+```{r Data containing samples and the GSVA enrichment scores}
+pathways <- rownames(GSVA_mat)
+
+#Creating an empty results data.frame with columns which will be filled
+results <- data.frame(
+  pathway = pathways,
+  p_value = NA_real_, #raw Wilcoxon p-value
+  median_tumor = NA_real_, #median GSVA score in tumor samples
+  median_normal = NA_real_, #median GSVA score in normal samples
+  median_diff = NA_real_, #median_tumor - median_normal (effect)
+  n_tumor = NA_integer_, #number of tumor samples used(counts)
+  n_normal = NA_integer_, #number of normal samples used(counts)
+  stringsAsFactors = FALSE
+)
+
+#Checking the first 6 rows of the empty results table
+head(results)
+
+
+```
+
+
+
+**EXTRACTING TUMOR VS NORMAL GSVA SCORES PER PATHWAY**
+
+I will take each pathway(80), separate its GSVA enrichment scores into tumor and normal groups, and compute the median GSVA score for each group.
+
+```{r Separating tumor and normal GSVA scores per pathway}
+#Distinguishing which samples are tumor and which are normal
+
+tumor_samples <- rownames(metadata_tumor_normal)[metadata_tumor_normal$Specimen == "tumor"]
+normal_samples <- rownames(metadata_tumor_normal)[metadata_tumor_normal$Specimen == "normal"]
+
+#Sanity check
+cat("Tumor samples:", length(tumor_samples), "\n")
+cat("Normal samples:", length(normal_samples), "\n")
+
+#Example: picking a Th17-specific pathway
+example_pathway <- "GSE11924_TH1_VS_TH17_CD4_TCELL_UP"
+cat("Example pathway:", example_pathway, "\n")
+
+#Extracting the GSVA scores for tumor and normal samples for that pathway
+tumor_values <- as.numeric(GSVA_mat[example_pathway, tumor_samples])
+normal_values <- as.numeric(GSVA_mat[example_pathway, normal_samples])
+
+#Printing summaries to compare central tendency and spread
+cat("\nSummary of GSVA enrichment scores:\n")
+cat("Tumor samples:\n")
+print(summary(tumor_values))
+
+cat("\nNormal samples:\n")
+print(summary(normal_values))
+
+```
+
+
+
+From the summaries extracted above, Min	-0.210	-0.164	The lowest enrichment score — both are negative, meaning some samples have low or no Th17 signal. Median	-0.025	+0.032	The middle tumor sample has slightly negative Th17 enrichment, while the median normal sample has positive enrichment meaning Th17 pathway seems higher in normal tissue. Mean	-0.0027	+0.0229	On average, GSVA scores are also higher in normal samples, again suggesting stronger Th17-associated activity in normal vs tumor. Max	0.183	0.210	meaning both have samples with modestly high activity, though the range is slightly broader in normals. Th17-upregulated genes seem slightly more active in normal samples than in tumor samples, this may suggest suppression or reduced infiltration of Th17-like cells in tumors, though we'll confirm that statistically
+
+
+
+**THE WILCOXON RANK-SUM TEST**
+
+It is also called the Mann-Whitney U test, is a non-parametric test used to compare two independent groups, tumor vs normal. In this case, each group's values are GSVA enrichment scores for the same pathway. the test checks whether the median TH17-related activity differs significantly between tumor and normal samples.
+
+```{r Mann-Whitney U test}
+wilcoxon_test <- wilcox.test(tumor_values,
+                             normal_values,
+                             alternative = "two.sided")
+wilcoxon_test
+```
+
+
+I ran the Mann-Whitney U test which compares whether the distribution of Th17 pathway activity scores differs between tumor and normal samples. The test computes a statistic W based on the ranks of values across both groups. The p value = 0.2058, represents the probability of observing a difference as extreme as what I found, if tumor and normal samples have no difference in pathway activity, since p = 0.2058 > 0.05, this result is not statistically significant.
+
+Well, this was the statistical test for one pathway, GSE11924_TH1_VS_TH17_CD4_TCELL_UP. Now, I want to perform the Wilcoxon test for each Th17-related pathway(all 80 of them)
+
+```{r Mann Whitney-U test for all pathways}
+wilcoxon_results <- data.frame(
+  pathway = rownames(GSVA_mat),
+  p_value = NA,
+  median_tumor = NA,
+  median_normal = NA,
+  median_diff = NA
+)
+
+#Looping through each pathway
+for (i in 1:nrow(GSVA_mat)) {
+  vals <- GSVA_mat[i, ]
+  tumor_vals <- vals[metadata_tumor_normal$Specimen == "tumor"]
+  normal_vals <- vals[metadata_tumor_normal$Specimen == "normal"]
+
+  if (length(tumor_vals) > 2 && length(normal_vals) > 2) {
+    test <- wilcox.test(tumor_vals, normal_vals, alternative = "two.sided", exact = FALSE)
+  wilcoxon_results$p_value[i] <- test$p.value
+  }
+
+wilcoxon_results$median_tumor[i] <- median(tumor_vals, na.rm = TRUE)  
+wilcoxon_results$median_normal[i] <- median(normal_vals, na.rm = TRUE)
+wilcoxon_results$median_diff[i] <- wilcoxon_results$median_tumor[i] - wilcoxon_results$median_normal[i]
+}
+
+#Viewing the results
+head(wilcoxon_results)
+summary(wilcoxon_results$p_value)
+
+```
+
+
+I successfully tested all Th17-related pathways across tumor and normal samples using the WIlcoxon rank-sum test. Most pathways showed small p values(e.g., 0.0000075, 0.00329), these are potential significant, suggesting real differences in Th17 activity between tumor and normal samples for those gene sets. And the median p which is approx 0.028, indicates that roughly half of my pathways show some evidence of difference(p < 0.05). However, since I tested many pathways(~80) I have now to correct for multiple comparisons to avoid false positives.
+
+
+**ADJUSTING THE P VALUE**
+
+I already have a data frame of the wilcoxon test result with 80 rows, each row is one pathway, and each has a p value. Now I want to correct these 80 p-values to control the false discovery rate(FDR) using the Benjamini-Hochberg method
+
+```{r Benjamini-Hochberg (FDR) correction}
+wilcoxon_results$adj_p_value <- p.adjust(wilcoxon_results$p_value,
+                                         method = "BH")
+
+
+#Adding significance labels for easy visualization
+wilcoxon_results$significance <- cut(
+  wilcoxon_results$adj_p_value,
+  breaks = c(-Inf, 0.01, 0.05, Inf),
+  labels = c("FDR < 0.01", "FDR < 0.05", "Not significant")
+)
+
+#Checking
+summary(wilcoxon_results$adj_p_value)
+table(wilcoxon_results$significance)
+```
+
+
+These results shows how the adjusted(FDR-corrected) p values are distributed, the smallest adjusted p-value(Min.) is 0, meaning some pathways were strongly significant. The median which is approximately 0.0056 and a mean of 0.23 shows that most pathways are not significant. Then we got 23 pathways with FDR < 0.01 which are highly significant, and 17 pathways wit FDR < 0.05 show that they are moderately significant, and 40 pathways which are not significant. Biologically, this may suggest that roughly half of Th17-related pathways exhibit differential activity between tumor and normal samples tissues, indicating that Th17 biology may be altered or enriched in tumor samples depending on the pathway direction, whether downregulated or upregulated. 
+
+
+```{r Visualization of the significant Th17 pathway activities}
+wilcox_results <- read.csv("/home/benn/Desktop/Th17/all_pathways_wilcoxon_results.csv")
+
+#Confirming if both the gsva th17 and metadata_tumor_normal exist
+stopifnot(exists("gsva_th17"), exists("metadata_tumor_normal"))
+
+#Checking the shapes
+dim(gsva_th17)
+head(colnames(gsva_th17))
+head(rownames(metadata_tumor_normal))
+
+#Transposing GSVA results and adding metadata
+gsva_df <- as.data.frame(t(gsva_th17))
+
+#Adding the specimen labels from my metadata
+gsva_df$Specimen <- metadata_tumor_normal[rownames(gsva_df), "Specimen"]
+
+#Checking the structure
+head(gsva_df[, 1:5])
+table(gsva_df$Specimen)
+
+#Filter only the significant ones(FDR < 0.05)
+significant_pathways <- wilcox_results |> 
+  filter(significance %in% c("FDR < 0.01", "FDR < 0.05"))
+
+#Extract pathway names
+sig_paths <- significant_pathways$Pathway
+
+#Checking the significant pathways I have
+length(sig_paths)
+
+#Converting to long format for plotting 
+gsva_long_sig <- gsva_df |> 
+  select(Specimen, all_of(sig_paths)) |> 
+  pivot_longer(
+    cols = all_of(sig_paths),
+    names_to = "Pathway",
+    values_to = "EnrichmentScores"
+  )
+
+#Merging p-values into your plotting dataset
+#Keeping only the pathway name and p value
+pval_data <- significant_pathways |> 
+  select(Pathway, p_value)
+  
+#Merge into the long dataset
+gsva_long_sig <- merge(gsva_long_sig, pval_data, by = "Pathway", all.x = TRUE)
+  
+#Plotting for significant pathways
+ggplot(gsva_long_sig, aes(x = Specimen, y = EnrichmentScores, fill = Specimen)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +
+  facet_wrap(~ Pathway, scales = "free_y", ncol = 4) +
+  theme_minimal(base_size = 13) +
+  scale_fill_manual(values = c("normal" = "#74add1", "tumor" = "#f46d43")) +
+  labs(
+    title = "Significant Pathways (FDR < 0.05): GSVA Enrichment Scores",
+    x = "",
+    y = "GSVA Enrichment Score"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 10),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+#Saving the boxplots
+ggsave(
+  filename = "/home/benn/Desktop/Th17/Significant_GSVA_pathways_boxplots2.png",
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
