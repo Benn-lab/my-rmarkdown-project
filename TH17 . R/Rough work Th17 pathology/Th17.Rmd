@@ -1,0 +1,165 @@
+---
+title: "Th17 rough work"
+author: "Benn"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Breast tumors differ in their immune landscape depending on their intrinsic molecular phenotype.
+Th17-driven immunity — mediated by IL-17A/F, RORγt activity, and downstream chemokines such as CXCL1, CXCL8, and CCL20 — plays a critical role in shaping chronic inflammatory microenvironments that can modulate tumor progression, immune cell recruitment, and stromal remodeling.
+
+Hormone receptor expression (ER, PR, HER2 status), tumor grade, and stage reflect underlying tumor biology, proliferation status, and degree of genomic instability. These features strongly influence cytokine signaling networks and immune infiltration patterns. By correlating Th17 pathway GSVA scores with these pathological features, we are asking:
+
+“Do tumors with particular receptor profiles or higher aggressiveness show stronger activation of Th17-related immune programs?”
+
+A significant association would suggest:
+Subtype-specific IL-17 signaling
+Differential immune pressure (immunoediting)
+Distinct inflammatory microenvironments
+Potential mechanistic links between Th17 cytokines and tumor subtype biology
+
+```{r Assuming merged has pathological features+GSVA pathway scores}
+# Select only the variables we want to correlate
+corr_data <- merged |> 
+  select(
+    Sample,
+    er, pr, her2, grade, stage,
+    everything() # retains GSVA scores
+  )
+# This extracts the clinical columns (ER/PR/HER2/grade/stage) along with all Th17 pathway GSVA scores, preparing them for correlation.
+```
+
+
+```{r Converting clinical variable into numeric form}
+corr_data <- corr_data |>
+  mutate(
+    ER_status = ifelse(er == "Positive", 1, 0),
+    PR_status = ifelse(pr == "Positive", 1, 0),
+    HER2_status = ifelse(her2 == "Positive", 1, 0),
+    Grade_num = as.numeric(grade),
+    Stage_num = as.numeric(stage)
+  )
+# Correlation needs numeric values.We convert categorical values into numeric variables so we can test association with GSVA pathway scores.
+```
+
+```{r Compute Correlations Between Each Th17 Pathway and Each Feature}
+# Identify GSVA pathway columns
+pathway_cols <- colnames(corr_data)[!(colnames(corr_data) %in% 
+                                      c("Sample","er","pr","her2","grade","stage",
+                                        "ER_status","PR_status","HER2_status",
+                                        "Grade_num","Stage_num"))]
+
+# Function to calculate correlation for one clinical variable
+correlate_feature <- function(feature_name) {
+  feature_values <- corr_data[[feature_name]]
+  
+  results <- lapply(pathway_cols, function(path) {
+    cor_test <- cor.test(feature_values, corr_data[[path]], method = "spearman")
+    data.frame(
+      Pathway = path,
+      Feature = feature_name,
+      Correlation = cor_test$estimate,
+      Pvalue = cor_test$p.value
+    )
+  })
+  
+  do.call(rbind, results)
+}
+
+# Run correlations for each feature
+all_corr_results <- rbind(
+  correlate_feature("ER_status"),
+  correlate_feature("PR_status"),
+  correlate_feature("HER2_status"),
+  correlate_feature("Grade_num"),
+  correlate_feature("Stage_num")
+)
+
+# Adjust p-values
+all_corr_results$AdjP <- p.adjust(all_corr_results$Pvalue, method = "BH")
+
+head(all_corr_results)
+
+```
+Explanation
+We loop through each Th17 pathway
+Correlate its GSVA score with ER/PR/HER2/Grade/Stage
+Use Spearman correlation (good for non-normal data)
+Adjust for multiple testing
+Produce a long tidy table for easy plotting
+
+```{r Identify the Most Significant Associations}
+significant_corr <- all_corr_results |> 
+  filter(AdjP < 0.05) |> 
+  arrange(AdjP)
+
+head(significant_corr)
+```
+
+
+Here you extract only meaningful correlations.
+This tells you which Th17 pathways correlate strongly with:
+ER status
+PR status
+HER2
+Tumor aggressiveness (grade)
+Tumor progression (stage)
+
+```{r Visualizing}
+library(ggplot2)
+
+ggplot(merged, aes(x = ER_status, y = merged$`GSE27241_WT_VS_RORGT_KO_TH17_POLARIZED_CD4_TCELL_UP`)) +
+  geom_boxplot() +
+  labs(
+    x = "ER Status (1 = Positive, 0 = Negative)",
+    y = "GSVA Score",
+    title = "Th17 Pathway Activity vs ER Status"
+  )
+```
+
+Explanation
+You can replace the pathway with any top enriched pathway.
+This is how you visually communicate your results.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
