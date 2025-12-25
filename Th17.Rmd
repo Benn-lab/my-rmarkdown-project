@@ -8,10 +8,13 @@ output:
   pdf_document: default
   powerpoint_presentation: default
   slidy_presentation: default
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 10, fig.height = 7, dpi = 300)
 ```
 
 Loading the required libraries to perform this inference of Th17
@@ -61,7 +64,11 @@ dim(expr_matrix)
 
 **VERIFYING AND ALIGNING SAMPLES IN METADATA AND THE EXPRESSION MATRIX**
 
-I will read in metadata file containing the samples and specimen type. I will then confirm sample names match between expression matrix and the metadata, I will the drop any unmatched samples. In short, I need each column in the expression matrix to have a corresponding row in the metadata
+I will read in metadata file containing the samples and specimen type. I
+will then confirm sample names match between expression matrix and the
+metadata, I will the drop any unmatched samples. In short, I need each
+column in the expression matrix to have a corresponding row in the
+metadata
 
 ```{r Metadata file}
 #Reading in the metadata file
@@ -95,14 +102,17 @@ stopifnot(all(colnames(expr_matrix) == rownames(metadata_tumor_normal)))
 length(common_samples)
 ```
 
-The above code chunk ensures that the expression matrix are clean and synchronized. Every column in expression matrix corresponds to exactly one row in the metadata. Now, this is ready for deconvolution.
+The above code chunk ensures that the expression matrix are clean and
+synchronized. Every column in expression matrix corresponds to exactly
+one row in the metadata. Now, this is ready for deconvolution.
 
 **DECONVOLUTION**
 
-In deconvolution, I will use immunedeconv package which integrates several popular methods like:
-xCell - which estimates immune/stromal enrichment scores
-CIBERSORT - which uses *reference* expression signatures for absolute immune cell fraction 
-and also EPIC, quantiseq and MCP-COUNTER.
+In deconvolution, I will use immunedeconv package which integrates
+several popular methods like: xCell - which estimates immune/stromal
+enrichment scores CIBERSORT - which uses *reference* expression
+signatures for absolute immune cell fraction and also EPIC, quantiseq
+and MCP-COUNTER.
 
 ```{r Deconvolution}
 #Confirming methods available
@@ -131,6 +141,7 @@ library(EPIC)
 resultsfrom_epic <- EPIC(bulk = expr_matrix)
 problematic_samples <- resultsfrom_epic$fit.gof[resultsfrom_epic$fit.gof$convergeCode != 0, ]
 problematic_samples
+
 #Viewing the cell-type fraction of the results
 head(resultsfrom_epic$cellFractions)
 
@@ -146,7 +157,31 @@ write.csv(resultsfrom_mcp, "mcp_results.csv")
 
 **COMBINING THE DECONVOLUTION RESULTS**
 
-Accurate characterization of the tumor immune microenvironment is critical for understanding tumor-immune interactions and their impact on *disease progression* and possible *therapeutic response*. However, different computational deconvolution algorithms such as xCell, quanTIseq, and MCP-counter use distinct statistical frameworks, marker sets, and reference matrices. Each method therefore capture complementary aspects of immune cell composition. To enhance robustness and biological confidence, the results from the three independent methods I used above i.e xCell, quantiseq, and mcp counter were combined and jointly visualized. This intergrative approach mitigates the limitations of any single algorithm and allows for cross-validation of immune-cell abundance estimates. *xCell* uses a gene signature–based enrichment method, providing relative enrichment scores for a broad spectrum of immune and stromal cell types. *quanTIseq* applies a constrained least-squares regression model, offering absolute cell fraction estimates while accounting for tumor purity. *MCP-counter* estimates immune and stromal cell abundance using marker gene expression derived from bulk RNA-seq, known for high specificity and reproducibility. I'll merge these outputs into a unified data matrix which will enable comparative visualization of immune infiltration across samples. I will visualize this with a heatmap which will maybe highlight concordant or divergent cell-type estimates between algorithms, providing deeper insight into immune heterogeneity and tumor-normal immune dynamics. This ensures my findings are not depedent on the bias of a single deconvolution framework.
+Accurate characterization of the tumor immune microenvironment is
+critical for understanding tumor-immune interactions and their impact on
+*disease progression* and possible *therapeutic response*. However,
+different computational deconvolution algorithms such as xCell,
+quanTIseq, and MCP-counter use distinct statistical frameworks, marker
+sets, and reference matrices. Each method therefore capture
+complementary aspects of immune cell composition. To enhance robustness
+and biological confidence, the results from the three independent
+methods I used above i.e xCell, quantiseq, and mcp counter were combined
+and jointly visualized. This intergrative approach mitigates the
+limitations of any single algorithm and allows for cross-validation of
+immune-cell abundance estimates. *xCell* uses a gene signature–based
+enrichment method, providing relative enrichment scores for a broad
+spectrum of immune and stromal cell types. *quanTIseq* applies a
+constrained least-squares regression model, offering absolute cell
+fraction estimates while accounting for tumor purity. *MCP-counter*
+estimates immune and stromal cell abundance using marker gene expression
+derived from bulk RNA-seq, known for high specificity and
+reproducibility. I'll merge these outputs into a unified data matrix
+which will enable comparative visualization of immune infiltration
+across samples. I will visualize this with a heatmap which will maybe
+highlight concordant or divergent cell-type estimates between
+algorithms, providing deeper insight into immune heterogeneity and
+tumor-normal immune dynamics. This ensures my findings are not depedent
+on the bias of a single deconvolution framework.
 
 ```{r Visualization}
 library(ComplexHeatmap)
@@ -275,9 +310,9 @@ expr_for_plot_scaled[is.na(expr_for_plot_scaled)] <- 0
 ha <- HeatmapAnnotation(
   Specimen = annotation_col$Specimen,
   col = list(Specimen = c("tumor" = "#E74C3C", "normal" = "#2ECC71")),
-  annotation_height = unit(0.5, "cm"),
+  annotation_height = unit(1, "cm"),
   show_annotation_name = TRUE,
-  gp = gpar(col = NA)
+  gp = gpar(col = NA, fontsize = 12)
 )
 
 #Double-check counts match
@@ -286,34 +321,73 @@ cat("Samples in heatmap:", ncol(expr_for_plot_scaled), "\n")
 stopifnot(ncol(expr_for_plot_scaled) == nrow(annotation_col))
 
 #Visualizing
-pdf("/home/benn/Desktop/Th17/combined_immune_Complexheatmap.pdf", 
-    width = 14, height = 10)
+pdf("/home/benn/Desktop/Th17/combined_immune_Complexheatmap.pdf",
+    width = 18, height = 14, pointsize = 12)
 
-Heatmap(
+# Draw the heatmap
+ht <- Heatmap(
   expr_for_plot_scaled,
-  name = "Relative Abundance(Z-score)",
-  top_annotation = ha,
-  col = colorRamp2(c(-2, 0, 2), c("navy", "white", "firebrick3")),
+  name = "Relative Abundance (Z-score)",
+  top_annotation = HeatmapAnnotation(
+    Specimen = annotation_col$Specimen,
+    col = list(Specimen = c("tumor" = "#E74C3C", "normal" = "#2ECC71")),
+    annotation_height = unit(1, "cm"),
+    show_annotation_name = TRUE,
+    gp = gpar(fontsize = 12)
+  ),
+  col = colorRamp2(c(-2, 0, 2), c("#08306B", "white", "#67000D")),
   cluster_rows = TRUE,
   cluster_columns = TRUE,
   show_row_names = TRUE,
   show_column_names = TRUE,
-  row_names_gp = gpar(fontsize = 6),
-  column_names_gp = gpar(fontsize = 7),
-  column_names_rot = 45,
+  row_names_gp = gpar(fontsize = 8),
+  column_names_gp = gpar(fontsize = 8, fontface = "bold"),
+  column_names_rot = 60,
   row_title = "Immune Cell Types (xCell / quanTIseq / MCP-counter)",
   column_title = "Samples (Tumor vs Normal)",
-  heatmap_legend_param = list(title_gp = gpar(fontsize = 10, fontface = "bold"))
+  row_title_gp = gpar(fontsize = 14, fontface = "bold"),
+  column_title_gp = gpar(fontsize = 14, fontface = "bold"),
+  heatmap_legend_param = list(
+    title_gp = gpar(fontsize = 12, fontface = "bold"),
+    labels_gp = gpar(fontsize = 10)
+  )
 )
 
+draw(ht)
+
+
+
+
+pdf("/home/benn/Desktop/Th17/combined_immune_Complexheatmap.pdf",
+    width = 18, height = 14)
+
+ht <- Heatmap(
+  expr_for_plot_scaled,
+  name = "Relative Abundance (Z-score)",
+  top_annotation = HeatmapAnnotation(
+    Specimen = annotation_col$Specimen,
+    col = list(Specimen = c("tumor" = "#E74C3C", "normal" = "#2ECC71"))
+  ),
+  col = colorRamp2(c(-2, 0, 2), c("navy", "white", "firebrick3")),
+  cluster_rows = TRUE,
+  cluster_columns = TRUE
+)
+
+draw(ht)
 dev.off()
+
 
 ```
 
-
 **FUNCTIONAL PATHWAY SCORING**
 
-I will shift focus from general immune deconvolution to *functional pathway scoring* which is the right strategy for quantifying Th17-related transcriptional activity because no method explicitly estimated Th17 proportions. I will estimate Th17 related activity using two complementary, single-smaple signature scoring methods: GSVA or ssGSEA. I will use *molecular signature database* to find all pathways that mention Th17
+I will shift focus from general immune deconvolution to *functional
+pathway scoring* which is the right strategy for quantifying
+Th17-related transcriptional activity because no method explicitly
+estimated Th17 proportions. I will estimate Th17 related activity using
+two complementary, single-sample signature scoring methods: GSVA or
+ssGSEA. I will use *molecular signature database* to find all pathways
+that mention Th17
 
 ```{r Molecular signature database}
 library(GSVA)
@@ -345,12 +419,27 @@ th17_gene_sets <- th17_sets |>
 
 #How many gene sets were collected?
 length(th17_gene_sets)
+
 ```
 
 **GENE SET VARIATION ANALYSIS**
 
-GSVA is a non-parametric method that estimates how active a biological pathway or gene set is within each sample in my expression dataset. Instead of testing single genes one by one, GSVA looks at gene groups(pathways) like Th17 differentiation and computes a continuous enrichment score per sample. So instead of asking is gene X for example upregulated?, GSVA asks is the overall Th17 pathway more active in this tumor sample compared to normal.So how does GSVA works, it is provided with the gene expression matrix and a list o gene sets/pathways(all genes related to Th17 cells). GSVA ranks all genes in each sample. Foe each gene set, it checks whether its member genes tend to be up or down in that samples'ranked expression profile. The result is an enrichment score per pathway per sample. Which means high score means the pathwasy is active/upregulated in that sample, and low score is that the pathway is inactive/downregulated. GSVA is useful because it transforms gene-level data into pathway-level data, and then it captures sample-specific pathway activity.
-
+GSVA is a non-parametric method that estimates how active a biological
+pathway or gene set is within each sample in my expression dataset.
+Instead of testing single genes one by one, GSVA looks at gene
+groups(pathways) like Th17 differentiation and computes a continuous
+enrichment score per sample. So instead of asking is gene X for example
+upregulated?, GSVA asks is the overall Th17 pathway more active in this
+tumor sample compared to normal.So how does GSVA works, it is provided
+with the gene expression matrix and a list o gene sets/pathways(all
+genes related to Th17 cells). GSVA ranks all genes in each sample. Foe
+each gene set, it checks whether its member genes tend to be up or down
+in that samples'ranked expression profile. The result is an enrichment
+score per pathway per sample. Which means high score means the pathway
+is active/upregulated in that sample, and low score is that the pathway
+is inactive/downregulated. GSVA is useful because it transforms
+gene-level data into pathway-level data, and then it captures
+sample-specific pathway activity.
 
 ```{r GSVA}
 gsva_th17 <- gsva(expr,
@@ -373,33 +462,267 @@ table(group)
 #Visualizing Th17 activity across samples
 scaled_th17 <- t(scale(t(gsva_th17)))
 
+#Clean names
+clean_names <- c(
+"Tfh vs Th17 (DN)",
+"Tfh vs Th17 (UP)",
+"Th1 vs Th17 (DN)",
+"Th1 vs Th17 (UP)",
+"Th2 vs Th17 (DN)",
+"Th2 vs Th17 (UP)",
+"Th1 vs Th17 GSE14026 (DN)",
+"Th1 vs Th17 GSE14026 (UP)",
+"Th17 vs iTreg (DN)",
+"Th17 vs iTreg (UP)",
+"Th17 vs Naive (DN)",
+"Th17 vs Naive (UP)",
+"Th17 vs nTreg (DN)",
+"Th17 vs nTreg (UP)",
+"Th1 vs Th17 GSE14308 (DN)",
+"Th1 vs Th17 GSE14308 (UP)",
+"Th2 vs Th17 GSE14308 (DN)",
+"Th2 vs Th17 GSE14308 (UP)",
+"Th1 vs Th17 (Day15 DN)",
+"Th1 vs Th17 (Day15 UP)",
+"Th1 vs Th17 (Day5 DN)",
+"Th1 vs Th17 (Day5 UP)",
+"Th1 vs Th17 Restim (Day15 DN)",
+"Th1 vs Th17 Restim (Day15 UP)",
+"Th1 vs Th17 Restim (Day5 DN)",
+"Th1 vs Th17 Restim (Day5 UP)",
+"Unstim vs Restim Th17 (Day15 DN)",
+"Unstim vs Restim Th17 (Day15 UP)",
+"Unstim vs Restim Th17 (Day5 DN)",
+"Unstim vs Restim Th17 (Day5 UP)",
+"Ctrl vs Digoxin (Th17 polarizing DN)",
+"Ctrl vs Digoxin (Th17 polarizing UP)",
+"Ctrl vs Digoxin RORγt KO (DN)",
+"Ctrl vs Digoxin RORγt KO (UP)",
+"WT vs RORγt KO Digoxin (DN)",
+"WT vs RORγt KO Digoxin (UP)",
+"WT vs RORγt KO Th17 (DN)",
+"WT vs RORγt KO Th17 Digoxin (DN)",
+"WT vs RORγt KO Th17 Digoxin (UP)",
+"WT vs RORγt KO Th17 (UP)",
+"Naive vs Th17 enriched (DN)",
+"Naive vs Th17 enriched (UP)",
+"Naive vs Th17 negative (DN)",
+"Naive vs Th17 negative (UP)",
+"Th17 enriched vs Th17 negative (DN)",
+"Th17 enriched vs Th17 negative (UP)",
+"Th1 vs Th17 enriched (DN)",
+"Th1 vs Th17 enriched (UP)",
+"Th1 vs Th17 negative (DN)",
+"Th1 vs Th17 negative (UP)",
+"Th17 activation 52h (DN)",
+"Th17 activation 52h (UP)",
+"Th17 activation 60h (DN)",
+"Th17 activation 60h (UP)",
+"Th0 vs Th17 IL23 52h (DN)",
+"Th0 vs Th17 IL23 52h (UP)",
+"Th0 vs Th17 IL23 60h (DN)",
+"Th0 vs Th17 IL23 60h (UP)",
+"Th0 vs Th17 IL6/IL23 10h (DN)",
+"Th0 vs Th17 IL6/IL23 10h (UP)",
+"Th0 vs Th17 IL6/IL23 1h (DN)",
+"Th0 vs Th17 IL6/IL23 1h (UP)",
+"Th0 vs Th17 IL6/IL23 20h (DN)",
+"Th0 vs Th17 IL6/IL23 20h (UP)",
+"Th0 vs Th17 IL6/IL23 30h (DN)",
+"Th0 vs Th17 IL6/IL23 30h (UP)",
+"Th0 vs Th17 IL6/IL23 42h (DN)",
+"Th0 vs Th17 IL6/IL23 42h (UP)",
+"Th0 vs Th17 IL6/IL23 4h (DN)",
+"Th0 vs Th17 IL6/IL23 4h (UP)",
+"Th0 vs Th17 IL6 52h (DN)",
+"Th0 vs Th17 IL6 52h (UP)",
+"Th0 vs Th17 IL6 60h (DN)",
+"Th0 vs Th17 IL6 60h (UP)",
+"WT vs SGK1 KO Th17 diff (DN)",
+"WT vs SGK1 KO Th17 diff (UP)",
+"BALB/c vs Th17 enriched (DN)",
+"BALB/c vs Th17 enriched (UP)",
+"Fetal lung Th17 signature",
+"Th17 cell differentiation (WP)"
+)
+
+
+#Applying the clean names to my heatmap
+rownames(scaled_th17) <- clean_names
+
+
+
 #Color annotations for tumor vs normal
 ann_colors <- list(Specimen = c("tumor" = "#E74C3C", "normal" = "#2ECC71"))
 annotation_col <- data.frame(Specimen = group)
 rownames(annotation_col) <- colnames(gsva_th17)
 
 #Plotting a heatmap
-pdf("/home/benn/Desktop/Th17/th17_pathway_gsva.pdf", width = 12, height = 8)
+pdf("/home/benn/Desktop/Th17/th17_pathway_gsva.pdf", width = 16, height = 10)
 pheatmap(
   scaled_th17,
   annotation_col = annotation_col,
   annotation_colors = ann_colors,
   color = colorRampPalette(c("navy", "white", "firebrick3"))(50),
   main = "TH17 Pathway Activity (GSVA)",
-  fontsize_row = 8,
-  fontsize_col = 6,
-  clustering_method = "complete"
+  fontsize_row = 10,
+  fontsize_col = 8,
+  fontsize = 12,
+  border_color = NA,
+  clustering_method = "complete",
+  treeheight_row = 40,
+  treeheight_col = 40,
+  angle_col = "45"
 )
 dev.off()
 
 
 
+
+#Clean names
+clean_names <- c(
+"Tfh vs Th17 (DN)",
+"Tfh vs Th17 (UP)",
+"Th1 vs Th17 (DN)",
+"Th1 vs Th17 (UP)",
+"Th2 vs Th17 (DN)",
+"Th2 vs Th17 (UP)",
+"Th1 vs Th17 GSE14026 (DN)",
+"Th1 vs Th17 GSE14026 (UP)",
+"Th17 vs iTreg (DN)",
+"Th17 vs iTreg (UP)",
+"Th17 vs Naive (DN)",
+"Th17 vs Naive (UP)",
+"Th17 vs nTreg (DN)",
+"Th17 vs nTreg (UP)",
+"Th1 vs Th17 GSE14308 (DN)",
+"Th1 vs Th17 GSE14308 (UP)",
+"Th2 vs Th17 GSE14308 (DN)",
+"Th2 vs Th17 GSE14308 (UP)",
+"Th1 vs Th17 (Day15 DN)",
+"Th1 vs Th17 (Day15 UP)",
+"Th1 vs Th17 (Day5 DN)",
+"Th1 vs Th17 (Day5 UP)",
+"Th1 vs Th17 Restim (Day15 DN)",
+"Th1 vs Th17 Restim (Day15 UP)",
+"Th1 vs Th17 Restim (Day5 DN)",
+"Th1 vs Th17 Restim (Day5 UP)",
+"Unstim vs Restim Th17 (Day15 DN)",
+"Unstim vs Restim Th17 (Day15 UP)",
+"Unstim vs Restim Th17 (Day5 DN)",
+"Unstim vs Restim Th17 (Day5 UP)",
+"Ctrl vs Digoxin (Th17 polarizing DN)",
+"Ctrl vs Digoxin (Th17 polarizing UP)",
+"Ctrl vs Digoxin RORγt KO (DN)",
+"Ctrl vs Digoxin RORγt KO (UP)",
+"WT vs RORγt KO Digoxin (DN)",
+"WT vs RORγt KO Digoxin (UP)",
+"WT vs RORγt KO Th17 (DN)",
+"WT vs RORγt KO Th17 Digoxin (DN)",
+"WT vs RORγt KO Th17 Digoxin (UP)",
+"WT vs RORγt KO Th17 (UP)",
+"Naive vs Th17 enriched (DN)",
+"Naive vs Th17 enriched (UP)",
+"Naive vs Th17 negative (DN)",
+"Naive vs Th17 negative (UP)",
+"Th17 enriched vs Th17 negative (DN)",
+"Th17 enriched vs Th17 negative (UP)",
+"Th1 vs Th17 enriched (DN)",
+"Th1 vs Th17 enriched (UP)",
+"Th1 vs Th17 negative (DN)",
+"Th1 vs Th17 negative (UP)",
+"Th17 activation 52h (DN)",
+"Th17 activation 52h (UP)",
+"Th17 activation 60h (DN)",
+"Th17 activation 60h (UP)",
+"Th0 vs Th17 IL23 52h (DN)",
+"Th0 vs Th17 IL23 52h (UP)",
+"Th0 vs Th17 IL23 60h (DN)",
+"Th0 vs Th17 IL23 60h (UP)",
+"Th0 vs Th17 IL6/IL23 10h (DN)",
+"Th0 vs Th17 IL6/IL23 10h (UP)",
+"Th0 vs Th17 IL6/IL23 1h (DN)",
+"Th0 vs Th17 IL6/IL23 1h (UP)",
+"Th0 vs Th17 IL6/IL23 20h (DN)",
+"Th0 vs Th17 IL6/IL23 20h (UP)",
+"Th0 vs Th17 IL6/IL23 30h (DN)",
+"Th0 vs Th17 IL6/IL23 30h (UP)",
+"Th0 vs Th17 IL6/IL23 42h (DN)",
+"Th0 vs Th17 IL6/IL23 42h (UP)",
+"Th0 vs Th17 IL6/IL23 4h (DN)",
+"Th0 vs Th17 IL6/IL23 4h (UP)",
+"Th0 vs Th17 IL6 52h (DN)",
+"Th0 vs Th17 IL6 52h (UP)",
+"Th0 vs Th17 IL6 60h (DN)",
+"Th0 vs Th17 IL6 60h (UP)",
+"WT vs SGK1 KO Th17 diff (DN)",
+"WT vs SGK1 KO Th17 diff (UP)",
+"BALB/c vs Th17 enriched (DN)",
+"BALB/c vs Th17 enriched (UP)",
+"Fetal lung Th17 signature",
+"Th17 cell differentiation (WP)"
+)
+
+
+#Applying the clean names to my heatmap
+rownames(scaled_th17) <- clean_names
+
+
+#Heatmap
+png("/home/benn/Desktop/Th17/th17_pathway_gsva_clean.png",
+    width = 3600, height = 2400, res = 600)
+
+pheatmap(
+  scaled_th17,
+  annotation_col = annotation_col,
+  annotation_colors = ann_colors,
+  color = colorRampPalette(c("navy", "white", "firebrick3"))(120),
+  main = "Th17 Pathway Activity (GSVA)",
+  fontsize_row = 9,
+  fontsize_col = 7,
+  border_color = NA,
+  clustering_method = "complete",
+  treeheight_row = 40,
+  treeheight_col = 40,
+  legend = TRUE,
+  annotation_legend = TRUE,
+  angle_col = "45",
+  cellheight = 11,
+  cellwidth = NA
+)
+
+dev.off()
+
+
+#Closing all devices
+while(!is.null(dev.list())) dev.off()
+
+
+
+
+
+
+
+
+
 ```
 
-The heatmap generated represents:
-Each row correspond to a Th17-related gene set e.g GSE43955_TH0_VS_TGFB_IL6_TH17_ACT_CD4_TCELL_60H_UP etc
-Each column corresponds to one of our samples(either tumor or normal)
-The color scale(navy, white, firebrick) shows the GSVA enrichment scores(Z-scaled). Blue indicating lower Th17 pathway activity(negative GSVA score), white shows neutral/baseline activity, while red shows higher Th17 activity(positive GSVA score). From the heatmap plot, the tumor samples in red and normal samples in green show differential enrichment for several Th17-related pathways. Many Th17-upregulated signnatures display increased red intensity in tumor samples, suggesting Th17 pathway activation in tumors. Higher GSVA scores in tumor samples for Th17-related gene sets e.g WP_TH17_CELL_DIFFERENTIATION_PATHWAY, GSE14308_TH17_VS_NATURAL_TREG_UP) imply that enrichment of Th17 differentiation and effector functions in tumor tissues, possible proinflammatory microenvironment as Th17 cells secrete IL-17, IL-22, and IL-21 promoting angiogenesis and tumor progression
+The heatmap generated represents: Each row correspond to a Th17-related
+gene set e.g GSE43955_TH0_VS_TGFB_IL6_TH17_ACT_CD4_TCELL_60H_UP etc Each
+column corresponds to one of our samples(either tumor or normal) The
+color scale(navy, white, firebrick) shows the GSVA enrichment
+scores(Z-scaled). Blue indicating lower Th17 pathway activity(negative
+GSVA score), white shows neutral/baseline activity, while red shows
+higher Th17 activity(positive GSVA score). From the heatmap plot, the
+tumor samples in red and normal samples in green show differential
+enrichment for several Th17-related pathways. Many Th17-upregulated
+signnatures display increased red intensity in tumor samples, suggesting
+Th17 pathway activation in tumors. Higher GSVA scores in tumor samples
+for Th17-related gene sets e.g WP_TH17_CELL_DIFFERENTIATION_PATHWAY,
+GSE14308_TH17_VS_NATURAL_TREG_UP) imply that enrichment of Th17
+differentiation and effector functions in tumor tissues, possible
+proinflammatory microenvironment as Th17 cells secrete IL-17, IL-22, and
+IL-21 promoting angiogenesis and tumor progression
 
 ```{r Statistical tests}
 stopifnot(exists("gsva_th17") || exists("scaled_th17"))
@@ -418,7 +741,8 @@ table(group_labels)
 
 **PREPARING THE RESULT TABLE**
 
-I want a tidy data.frame with one row per pathway and columns reserved for p-values, medians, counts, and effect size.
+I want a tidy data.frame with one row per pathway and columns reserved
+for p-values, medians, counts, and effect size.
 
 ```{r Data containing samples and the GSVA enrichment scores}
 pathways <- rownames(GSVA_mat)
@@ -441,11 +765,11 @@ head(results)
 
 ```
 
-
-
 **EXTRACTING TUMOR VS NORMAL GSVA SCORES PER PATHWAY**
 
-I will take each pathway(80), separate its GSVA enrichment scores into tumor and normal groups, and compute the median GSVA score for each group.
+I will take each pathway(80), separate its GSVA enrichment scores into
+tumor and normal groups, and compute the median GSVA score for each
+group.
 
 ```{r Separating tumor and normal GSVA scores per pathway}
 #Distinguishing which samples are tumor and which are normal
@@ -475,15 +799,26 @@ print(summary(normal_values))
 
 ```
 
-
-
-From the summaries extracted above, Min	-0.210	-0.164	The lowest enrichment score — both are negative, meaning some samples have low or no Th17 signal. Median	-0.025	+0.032	The middle tumor sample has slightly negative Th17 enrichment, while the median normal sample has positive enrichment meaning Th17 pathway seems higher in normal tissue. Mean	-0.0027	+0.0229	On average, GSVA scores are also higher in normal samples, again suggesting stronger Th17-associated activity in normal vs tumor. Max	0.183	0.210	meaning both have samples with modestly high activity, though the range is slightly broader in normals. Th17-upregulated genes seem slightly more active in normal samples than in tumor samples, this may suggest suppression or reduced infiltration of Th17-like cells in tumors, though we'll confirm that statistically
-
-
+From the summaries extracted above, Min -0.210 -0.164 The lowest
+enrichment score — both are negative, meaning some samples have low or
+no Th17 signal. Median -0.025 +0.032 The middle tumor sample has
+slightly negative Th17 enrichment, while the median normal sample has
+positive enrichment meaning Th17 pathway seems higher in normal tissue.
+Mean -0.0027 +0.0229 On average, GSVA scores are also higher in normal
+samples, again suggesting stronger Th17-associated activity in normal vs
+tumor. Max 0.183 0.210 meaning both have samples with modestly high
+activity, though the range is slightly broader in normals.
+Th17-upregulated genes seem slightly more active in normal samples than
+in tumor samples, this may suggest suppression or reduced infiltration
+of Th17-like cells in tumors, though we'll confirm that statistically
 
 **THE WILCOXON RANK-SUM TEST**
 
-It is also called the Mann-Whitney U test, is a non-parametric test used to compare two independent groups, tumor vs normal. In this case, each group's values are GSVA enrichment scores for the same pathway. the test checks whether the median TH17-related activity differs significantly between tumor and normal samples.
+It is also called the Mann-Whitney U test, is a non-parametric test used
+to compare two independent groups, tumor vs normal. In this case, each
+group's values are GSVA enrichment scores for the same pathway. the test
+checks whether the median TH17-related activity differs significantly
+between tumor and normal samples.
 
 ```{r Mann-Whitney U test}
 wilcoxon_test <- wilcox.test(tumor_values,
@@ -492,10 +827,17 @@ wilcoxon_test <- wilcox.test(tumor_values,
 wilcoxon_test
 ```
 
+I ran the Mann-Whitney U test which compares whether the distribution of
+Th17 pathway activity scores differs between tumor and normal samples.
+The test computes a statistic W based on the ranks of values across both
+groups. The p value = 0.2058, represents the probability of observing a
+difference as extreme as what I found, if tumor and normal samples have
+no difference in pathway activity, since p = 0.2058 \> 0.05, this result
+is not statistically significant.
 
-I ran the Mann-Whitney U test which compares whether the distribution of Th17 pathway activity scores differs between tumor and normal samples. The test computes a statistic W based on the ranks of values across both groups. The p value = 0.2058, represents the probability of observing a difference as extreme as what I found, if tumor and normal samples have no difference in pathway activity, since p = 0.2058 > 0.05, this result is not statistically significant.
-
-Well, this was the statistical test for one pathway, GSE11924_TH1_VS_TH17_CD4_TCELL_UP. Now, I want to perform the Wilcoxon test for each Th17-related pathway(all 80 of them)
+Well, this was the statistical test for one pathway,
+GSE11924_TH1_VS_TH17_CD4_TCELL_UP. Now, I want to perform the Wilcoxon
+test for each Th17-related pathway(all 80 of them)
 
 ```{r Mann Whitney-U test for all pathways}
 wilcoxon_results <- data.frame(
@@ -528,13 +870,21 @@ summary(wilcoxon_results$p_value)
 
 ```
 
-
-I successfully tested all Th17-related pathways across tumor and normal samples using the WIlcoxon rank-sum test. Most pathways showed small p values(e.g., 0.0000075, 0.00329), these are potential significant, suggesting real differences in Th17 activity between tumor and normal samples for those gene sets. And the median p which is approx 0.028, indicates that roughly half of my pathways show some evidence of difference(p < 0.05). However, since I tested many pathways(~80) I have now to correct for multiple comparisons to avoid false positives.
-
+I successfully tested all Th17-related pathways across tumor and normal
+samples using the WIlcoxon rank-sum test. Most pathways showed small p
+values(e.g., 0.0000075, 0.00329), these are potential significant,
+suggesting real differences in Th17 activity between tumor and normal
+samples for those gene sets. And the median p which is approx 0.028,
+indicates that roughly half of my pathways show some evidence of
+difference(p \< 0.05). However, since I tested many pathways(\~80) I
+have now to correct for multiple comparisons to avoid false positives.
 
 **ADJUSTING THE P VALUE**
 
-I already have a data frame of the wilcoxon test result with 80 rows, each row is one pathway, and each has a p value. Now I want to correct these 80 p-values to control the false discovery rate(FDR) using the Benjamini-Hochberg method
+I already have a data frame of the wilcoxon test result with 80 rows,
+each row is one pathway, and each has a p value. Now I want to correct
+these 80 p-values to control the false discovery rate(FDR) using the
+Benjamini-Hochberg method
 
 ```{r Benjamini-Hochberg (FDR) correction}
 wilcoxon_results$adj_p_value <- p.adjust(wilcoxon_results$p_value,
@@ -553,9 +903,18 @@ summary(wilcoxon_results$adj_p_value)
 table(wilcoxon_results$significance)
 ```
 
-
-These results shows how the adjusted(FDR-corrected) p values are distributed, the smallest adjusted p-value(Min.) is 0, meaning some pathways were strongly significant. The median which is approximately 0.0056 and a mean of 0.23 shows that most pathways are not significant. Then we got 23 pathways with FDR < 0.01 which are highly significant, and 17 pathways wit FDR < 0.05 show that they are moderately significant, and 40 pathways which are not significant. Biologically, this may suggest that roughly half of Th17-related pathways exhibit differential activity between tumor and normal samples tissues, indicating that Th17 biology may be altered or enriched in tumor samples depending on the pathway direction, whether downregulated or upregulated. 
-
+These results shows how the adjusted(FDR-corrected) p values are
+distributed, the smallest adjusted p-value(Min.) is 0, meaning some
+pathways were strongly significant. The median which is approximately
+0.0056 and a mean of 0.23 shows that most pathways are not significant.
+Then we got 23 pathways with FDR \< 0.01 which are highly significant,
+and 17 pathways wit FDR \< 0.05 show that they are moderately
+significant, and 40 pathways which are not significant. Biologically,
+this may suggest that roughly half of Th17-related pathways exhibit
+differential activity between tumor and normal samples tissues,
+indicating that Th17 biology may be altered or enriched in tumor samples
+depending on the pathway direction, whether downregulated or
+upregulated.
 
 ```{r Visualization of the significant Th17 pathway activities}
 wilcox_results <- read.csv("/home/benn/Desktop/Th17/all_pathways_wilcoxon_results.csv")
@@ -631,58 +990,679 @@ ggsave(
   dpi = 300
 )
 
+#Choosing two pathways for my presentation
+chosen_paths <- c(
+  "GSE27241_WT_VS_RORGT_KO_TH17_POLARIZED_CD4_TCELL_UP",
+  "GSE43955_TH0_VS_TGFB_IL6_TH17_ACT_CD4_TCELL_30H_UP"
+)
+
+#Filter GSVA results to only these pathways
+gsva_two <- gsva_df |> 
+  select(Specimen, all_of(chosen_paths)) |> 
+  pivot_longer(
+    cols = chosen_paths,
+    names_to = "Pathway",
+    values_to = "EnrichmentScores"
+  )
+
+#Plot
+ggplot(gsva_two, aes(x = Specimen, y = EnrichmentScores, fill = Specimen)) +
+  geom_boxplot(alpha = 0.8) +
+  geom_jitter(width = 0.2, alpha = 0.4) +
+  facet_wrap(~ Pathway, scales = "free_y") +
+  theme_minimal(base_size = 13) +
+  scale_fill_manual(values = c("normal" = "#74add1", "tumor" = "#f46d43")) +
+  labs(
+    title = "GSVA Enrichment Scores for Two Key Th17 Pathways",
+    x = "",
+    y = "GSVA Score"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold")
+  )
+
+#Plotting again
+choosen_paths2 <- c(
+  "WP_TH17_CELL_DIFFERENTIATION_PATHWAY",
+  "GSE27241_WT_VS_RORGT_KO_TH17_POLARIZED_CD4_TCELL_UP",
+  "GSE43955_TGFB_IL6_VS_TGFB_IL6_IL23_TH17_ACT_CD4_TCELL_60H_UP",
+  "GSE43955_TGFB_IL6_VS_TGFB_IL6_IL23_TH17_ACT_CD4_TCELL_52H_DN"
+)
+
+#Filter GSVA results to only these pathways
+gsva_three <- gsva_df |> 
+  select(Specimen, all_of(choosen_paths2)) |> 
+  pivot_longer(
+    cols = choosen_paths2,
+    names_to = "Pathway",
+    values_to = "EnrichmentScores"
+  )
+
+#Extract the adjusted p-values for each chosen pathway
+four_pvals <- wilcox_results |>  
+  filter(Pathway %in% choosen_paths2) |> 
+  select(Pathway, adj_p_value)
+
+#Merge so each row gets its p-value
+gsva_three <- gsva_three |> 
+  left_join(four_pvals, by = "Pathway")
+
+#Format FDR into scientific notation for neat plotting
+gsva_three$FDR_Label <- paste0("FDR = ", signif(gsva_three$adj_p_value, 3))
+
+
+
+#Plot
+ggplot(gsva_three, aes(x = Specimen, y = EnrichmentScores, fill = Specimen)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +
+  facet_wrap(~ Pathway, scales = "free_y", ncol = 2) +
+  geom_text(
+    aes(label = FDR_Label),
+    x = 1.5,              # place label between the two boxes
+    y = Inf,              # place at top of panel
+    vjust = 1.5,
+    size = 4,
+    fontface = "bold"
+  ) +
+  theme_minimal(base_size = 14) +
+  scale_fill_manual(values = c("normal" = "#74add1", "tumor" = "#f46d43")) +
+  labs(
+    title = "Th17 Pathways Significantly Altered Between Tumor and Normal Tissue",
+    x = "",
+    y = "GSVA Enrichment Score"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+#Saving
+ggsave(
+  filename = "/home/benn/Desktop/Th17/Four_Significant_Th17_Pathways_Boxplots.png",
+  width = 12,
+  height = 10,
+  dpi = 300
+)
+
+chosen_paths <- c(
+  "GSE27241_WT_VS_RORGT_KO_TH17_POLARIZED_CD4_TCELL_UP",
+  "WP_TH17_CELL_DIFFERENTIATION_PATHWAY"
+)
+
+clean_names <- c(
+  "GSE27241_WT_VS_RORGT_KO_TH17_POLARIZED_CD4_TCELL_UP" = "RORγt-dependent Th17 program",
+  "WP_TH17_CELL_DIFFERENTIATION_PATHWAY" = "Th17 Differentiation (WikiPathway)"
+)
+
+
+#Melt into long format
+gsva_two <- gsva_df |>
+  select(Specimen, all_of(chosen_paths)) |>
+  pivot_longer(
+    cols = chosen_paths,
+    names_to = "Pathway",
+    values_to = "EnrichmentScores"
+  ) |>
+  mutate(Pathway = recode(Pathway, !!!clean_names))
+
+#Plotting and saving
+p <- ggplot(gsva_two, aes(x = Specimen, y = EnrichmentScores, fill = Specimen)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.85) +
+  geom_jitter(width = 0.2, alpha = 0.4, size = 1.8) +
+  facet_wrap(~ Pathway, scales = "free_y") +
+  theme_minimal(base_size = 14) +
+  scale_fill_manual(values = c("normal" = "#74add1", "tumor" = "#f46d43")) +
+  labs(
+    title = "Th17 Pathway Activity in Tumor vs Normal Tissue",
+    x = "",
+    y = "GSVA Score"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 14),
+    axis.text.x = element_text(face = "bold")
+  )
+
+p
+
+ggsave("Th17_two_pathways_boxplot.png",
+       p, width = 12, height = 7, dpi = 600)
+
+
+
+
+
+
+
+
+
+```
+
+I want to carry out correlation analysis, I want to correlate the
+expression of Th17 pathways with the expression of hormone receptors ER
+and PR. I am intergrating molecular data(gene/pathway expression) with
+clinical data(ER/PR receptor status, tumor vs normal, etc) so that I can
+test biological relationships, whether Th17 immune activity differs with
+hormone receptor expression in breast tissue
+
+```{r Loading the data}
+library(dplyr)
+library(stringr)
+
+
+#Loading the sample codes in the Kijabe-Copy of Kenyan sample_Pathology_Demographics_Clinical_set1_data
+
+sample_codes <- readxl::read_excel("/home/benn/Desktop/RNAseq data/Kijabe-Copy of Kenyan sample_Pathology_Demographics_Clinical_set1_data.xlsx",
+                                   sheet = "Sample COdes")
+
+
+#Loading the sample codes in the Kijabe-Copy of Kenyan sample_Pathology_Demographics_Clinical_set1_data
+
+pathology <- readxl::read_excel("/home/benn/Desktop/RNAseq data/Kijabe-Copy of Kenyan sample_Pathology_Demographics_Clinical_set1_data.xlsx",
+                                sheet = "Pathology",
+                                col_names = TRUE,
+                                skip = 0)
+
+
+#Checking
+cat("GSVA sample columns (first 10):\n"); print(colnames(gsva_th17)[1:10])
+cat("\nSample codes columns:\n"); print(colnames(sample_codes))
+cat("\nPathology columns (first 20):\n"); print(colnames(pathology)[1:20])
+
+#Normalizing column names and trimming strings between the pathology and sample code sheets
+colnames(sample_codes) <- tolower(trimws(colnames(sample_codes)))
+colnames(pathology) <- tolower(colnames(pathology))
+
+#Ensuring the key columns exist renaming and normalizing them
+sample_codes <- sample_codes |> 
+  rename(
+    sample_numbers = any_of(c("sample numbers", "sample_numbers", "sample number")),
+    tube_label = any_of(c("tube label", "tube_label", "tube_label ")),
+    type = any_of(c("type", "specimen type"))
+  )
+
+pathology <- pathology |> 
+  rename(
+    study_number = any_of(c("study number", "study_number")),
+    er = any_of(c("er", "er status", "estrogen receptor")),
+    pr = any_of(c("pr", "pr status", "progesterone receptor")),
+    her2 = any_of(c("her2", "her2 status"))
+  )
+
+#Cleanly joining the key columns(lowercasing and trimming the whitespace)
+sample_codes <- sample_codes |> 
+  mutate(tube_label = str_trim(tolower(tube_label)),
+         base_id = str_extract(tube_label, "^[a-z]+\\d+"))
+pathology <- pathology |> 
+  mutate(study_number = str_trim(tolower(study_number)),
+         base_id = str_extract(study_number, "^[a-z]+\\d+"))
+
+#Converting all column names to lowercase
+colnames(pathology)
+colnames(pathology) <- tolower(colnames(pathology))
+
+#Confirmation
+head(pathology$study_number)
+head(pathology$base_id)
+
+#Checking how many overlap
+intersected_samples <- intersect(sample_codes$base_id, pathology$base_id)
+cat("Number of overlapping base IDs:", length(intersected_samples), "\n")
+
+#Merging the datasets correctly
+metadata_tumor_pathology <- sample_codes |> 
+  left_join(pathology, by = "base_id")
+
+#Checking what I have, the important columns
+cat("\nNumber of merged rows:", nrow(metadata_tumor_pathology), "\n")
+cat("\nMerged columns:\n")
+print(colnames(metadata_tumor_pathology))
+
+#Keeping only the samples that have a match between pathology and sample codes
+sample_codes_tumor <- sample_codes |> 
+  filter(base_id %in% intersected_samples)
+pathology_tumor <- pathology |> 
+  filter(base_id %in% intersected_samples)
+
+
+#Confirming the result
+cat("Number of rows after correct merge:", nrow(metadata_tumor_pathology), "\n")
+head(metadata_tumor_pathology[, c("base_id", "tube_label", "er", "pr", "her2")])
+
+#Checking
+nrow(sample_codes_tumor)
+nrow(pathology_tumor)
+
+#Checking duplicates
+sample_codes_tumor |> 
+  count(base_id) |> 
+  filter(n > 1)
+
+pathology_tumor |> 
+  count(base_id) |> 
+  filter(n > 1)
+
+
+#Cleaning base_id in both data frames
+sample_codes_tumor <- sample_codes_tumor |> 
+  mutate(base_id = str_trim(tolower(base_id)))
+
+pathology_tumor <- pathology_tumor |> 
+  mutate(base_id = str_trim(tolower(base_id)))
+
+#Checking for duplicates
+sample_codes_tumor |> 
+  count(base_id) |> 
+  filter(n > 1)
+sample_codes_tumor_unique <- sample_codes_tumor |> 
+  distinct(base_id, .keep_all = TRUE)
+nrow(sample_codes_tumor_unique)  
+  
+  
+#Merging correctly
+metadata_tumor_pathology <- inner_join(
+  sample_codes_tumor_unique,
+  pathology_tumor,
+  by = "base_id"
+)
+  
+
+cat("Number of rows after correct merge:", nrow(metadata_tumor_pathology), "\n")
+  
 ```
 
 
+Now I will link the 23 tumor samples with the th17_gsva_scores matrix
+
+```{r metadata_tumor_pathology meets gsva}
+#Checking what the sample names look like in the gsva data
+head(colnames(gsva_th17))
+#as well as the metadata_tumor_pathology
+head(metadata_tumor_pathology$sample_numbers)
+
+#Confirming intersection
+intersected_samples <- intersect(colnames(gsva_th17),
+                                 metadata_tumor_pathology$sample_numbers)
+
+cat("Number of overlapping samples:", length(intersected_samples), "\n")
+
+#Subsetting both datasets to the common samples
+th17_gsva_tumor <- gsva_th17[, intersected_samples, drop = FALSE]
+
+metadata_tumor_matched <- metadata_tumor_pathology |> 
+  filter(sample_numbers %in% intersected_samples)
+
+#Checking final alignment
+metadata_tumor_matched <- metadata_tumor_matched |> 
+  arrange(match(sample_numbers, intersected_samples))
+
+all(colnames(th17_gsva_tumor) == metadata_tumor_matched$sample_numbers)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
+```{r Cleaning receptor status columns}
+#Cleaning receptor status columns
+metadata_tumor_matched <- metadata_tumor_matched |> 
+  mutate(
+    er = tolower(str_trim(er)),
+    pr = tolower(str_trim(pr)),
+    her2 = tolower(str_trim(her2))
+  )
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+#Checking unique values
+sapply(metadata_tumor_matched[, c("er", "pr", "her2")], unique)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+The hormone receptor columns above have negative and positive, and their is one entry of equivocal in the her2 column. I will compare the Th17 pathway activity based on hormone receptor of the tumors.
+
+```{r Adding the gsva_th17 scores}
+colnames(gsva_th17)
+length(colnames(gsva_th17))
+length(rownames(sample_codes_tumor))
+
+# I've been pondering on the pathways that I should pick
+# Definitely picking the significant pathways
+
+# Extracting the genes responsible for Th17 differentiation
+genes_th17_differentiation <- th17_gene_sets[["WP_TH17_CELL_DIFFERENTIATION_PATHWAY"]]
+genes_th17_differentiation
+# Saving the gene list
+write.table(genes_th17_differentiation,
+            "TH17_CELL_DIFFERENTIATION_genes.txt",
+            quote = FALSE, row.names = FALSE, col.names = FALSE)
+
+# Extracting genes that are upregulated in naive CD4+ T cells compared to Th17-enriched CD4+ T cells
+genes_upregulated_in_naiveCD4Tcells_compared_to_Th17 <- th17_gene_sets[["GSE32901_NAIVE_VS_TH17_ENRICHED_CD4_TCELL_UP"]]
+genes_upregulated_in_naiveCD4Tcells_compared_to_Th17
+
+```
+
+
+A while ago I performed differential expression analysis, and my question today is: Are Th17 pathways overrepresented among the genes that are significantly differentially expressed?  Overrepresented meaning that a certain group of genes appears more often than exprected by random chance. Overrepresentaion means that a pathway is activated, suprpressed or involved.
+
+```{r Overrepresentation of genes in the th17 related pathways}
+#Checking the dimensions of my differentially expressed genes in my results
+head(results)
+dim(results)
+summary(results$adj.P.Val)
+table(results$adj.P.Val <= 0.05) #There were more than 12,000 DEGs(P <= 0.05)
+
+#Subgrouping and building significantly differentially expressed genes
+sig_DEGs <- results[results$adj.P.Val <= 0.05, , drop = FALSE]
+sig_genes <- rownames(sig_DEGs)
+
+#How many significant DEGs confirmation
+length(sig_genes) #12,414 in total
+
+#Saving that above
+write.csv(sig_genes, "Significant_DEGs_adjP0.05.csv", row.names = TRUE)
+```
+
+What I need for these analysis is
+1. A list of all expressed genes(results)
+2. A list of significantly differentially expressed genes(DEGs)(sig_genes)
+3. A list of genes inside each Th17 pathway(th17 gene sets)
+
+
+```{r}
+#Checking the th17 gene sets
+unique(th17_sets$gs_name)
+names(th17_gene_sets)[1:5]
+th17_gene_sets[[1]][1:10]
+
+#Preparing background and DEG lists
+#Background are the genes tested by limma
+background_genes <- rownames(results)
+length_background <- length(background_genes)
+
+#Significant DEGs 
+sig_genes <- rownames(sig_DEGs)
+length_sig <- length(sig_genes)
+
+#Uppercase versions for robust matching
+bg_up <- toupper(background_genes)
+deg_up <- toupper(sig_genes)
+
+#Quick report
+list(total_tested = length_background, total_significant = length_sig)
+
+```
+
+Next, I want for every pathway(80), how many genes exist in the pathway list, how many of those are actually present in my expression/limma results, and many overlap with my DEGs
+How many genes does this pathway have in total?
+How many of those genes are actually present in my expression data?
+How many overlap with my DEGs?
+
+```{r Overlap}
+#Preparing the holder table
+pw_diag <- data.frame(
+  Pathway = character(),
+  PathwayGenesTotal = integer(), #original count in th17_gene_sets
+  PathwayGenesInData = integer(), #genes present in your background
+  OverlapWithDEGs = integer(), #genes present in both pathway and DEGs
+  stringsAsFactors = FALSE
+)
+
+for (pw in names(th17_gene_sets)) {
+  pw_genes <- unique(toupper(th17_gene_sets[[pw]])) # pathway gene names uppercased
+  total_in_pw <- length(pw_genes)
+  present_in_data <- intersect(pw_genes, bg_up)
+  in_data_count <- length(present_in_data)
+  overlap_count <- sum(present_in_data %in% deg_up)
+  
+  pw_diag <- rbind(pw_diag, data.frame(
+    Pathway = pw,
+    PathwayGenesTotal = total_in_pw,
+    PathwayGenesInData = in_data_count,
+    OverlapWithDEGs = overlap_count,
+    stringsAsFactors = FALSE
+  ))
+  }
+
+#Order by PathwayGenesinData(descending) so large ones at top
+
+pw_diag <- pw_diag[order(-pw_diag$PathwayGenesInData, -pw_diag$OverlapWithDEGs), ]
+head(pw_diag, 10) #Showing top 10
+```
+
+Next, I want to see how many pathways have small representation
+
+
+```{r The number of pathway genes actually detected in my datset}
+#Count pathways with zero genes present, <= 5 genes, <= 10 genes
+zero_present <- sum(pw_diag$PathwayGenesInData == 0)
+small_pw_5 <- sum(pw_diag$PathwayGenesInData > 0 & pw_diag$PathwayGenesInData <= 5 )
+small_pw_10 <- sum(pw_diag$PathwayGenesInData > 5 & pw_diag$PathwayGenesInData <= 10)
+large_pw <- sum(pw_diag$PathwayGenesInData > 10)
+
+c(zero_present = zero_present, '<=5_genes' = small_pw_5, '6-10_genes' = small_pw_10, '>10_genes' = large_pw)
+head(pw_diag, 10)
+```
+
+
+My goal was to determine which Th17-specific immune pathways are statistically enriched among my differentially expressed genes. My dataset is suitable because the universe size(background genes) are 24,812 genes tested, the number of significant DEGs is high enough(12,414 genes), and the overlap will be meaningful because pathway sizes range from 10-70 genes.
+My next step is a **Fisher's exact** enrichment test for each pathway which will compare genes in my differntial expression list, gene list of each Th17 pathway and against the entire universe.
+
+```{r Fisher's Exact over-representation analysis}
+enrichment_results <- data.frame(
+  Pathway = character(),
+  PathwaySize = integer(),
+  Overlap = integer(),
+  PValue = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (pw in names(th17_gene_sets)) {
+  
+  pw_genes <- toupper(th17_gene_sets[[pw]])
+  pw_genes_present <- intersect(pw_genes, bg_up)#genes in my data
+  
+  pw_size <- length(pw_genes_present)
+  if (pw_size == 0) next
+  
+  overlap <- sum(pw_genes_present %in% deg_up) #overlap with DEGs
+  
+  #Build 2 by 2 contingency table
+  mat <- matrix(c(
+    overlap,
+    pw_size - overlap,
+    length_sig - overlap,
+    length_background - pw_size - (length_sig - overlap)
+  ),nrow = 2, byrow = TRUE)
+  
+  #Fisher test
+  ft <- fisher.test(mat, alternative = "greater")
+  
+  enrichment_results <- rbind(
+    enrichment_results,
+    data.frame(
+      Pathway = pw,
+      PathwaySize = pw_size,
+      Overlap = overlap,
+      PValue = ft$p.value,
+      stringsAsFactors = FALSE
+    )
+  )
+  }
+
+# Adjusting p-values
+enrichment_results$AdjP <- p.adjust(enrichment_results$PValue, method = "BH")
+
+#Sort by most enriched
+enrichment_results <- enrichment_results[order(enrichment_results$AdjP), ]
+
+#Save
+write.csv(enrichment_results, "Th17_Pathway_Enrichment.csv", row.names = FALSE)
+
+head(enrichment_results, 15)
+
+#Saving
+write.csv(enrichment_results,
+          file = "Th17_Pathway_Enrichment_FULL.csv",
+          row.names = FALSE)
+```
+
+Are the Th17 pathways large enough and well represented in my data to perform reliable enrichment analysis? In the above chunk I was checking how **well each Th17 pathway is represented** in my RNAseq data. The result that I have above, enrichment results shows the pathways, which are validated Th17-specific transcriptional program often derived form experiments. The most significant pathway, RORgammaT-dependent Th17 activation, with an overlap of 113 genes(Thhe number of genes that are both in a given Th17 pathway and in the significantly DEGs).  A high overlap means that the pathway is truly activated or suppressed in my data, and it also means that the DEGs strongly resemble the known biology of Th17 activation, and alos this overlap is biologically meaningful. The pathway size refers to the number of genes in the pathway that are present in my dataset.
+
+Next I want to pick the pathways with the greater overlap to do a correlation with pathological and clinical features
+
+```{r}
+library(tibble)
+
+#Converting GSVA matrix to data frame with sample column
+th17_gsva_tumor_df <- th17_gsva_tumor |> 
+  as.data.frame() |> 
+  rownames_to_column(var = "sample_numbers") #This safely extracts rownames an makes them a column
+
+# Merging with shared sample numbers and renaming it to just sample
+# First changing the samples as characters
+metadata_tumor_matched$sample_numbers <- as.character(metadata_tumor_matched$sample_numbers)
+th17_gsva_tumor_t$Sample <- as.character(th17_gsva_tumor_t$Sample)
+
+#Merging
+merged <- metadata_tumor_matched |> 
+  inner_join(th17_gsva_tumor_df, by = "sample_numbers")
+
+#Checking
+head(merged)
+names(merged)
+```
+
+By correlating GSVA-derived Th17 pathway scores with hormone receptor status, this analysis interrogates whether IL-17 driven transcriptional programs preferentially associate with specific receptor-defined subtype. The merged dataset contains all tumor metadata(ER, PR, HER2, grade, stage, etc.) and also all Th17 GSVA scores for each tumor sample
+
+```{r Numeric versions of hormone receptor status, grade and stage}
+library(dplyr)
+corr_data <- merged |> 
+  mutate(
+    ER_status = ifelse(er == "Positive", 1, 0),
+    PR_status = ifelse(pr == "Positive", 1, 0),
+#HER2 with 3 categories
+HER2_status = case_when(
+  her2 == "Positive" ~1,
+  her2 == "Equivocal" ~ 0.5,
+  her2 == "Negative" ~0,
+  TRUE ~ NA_real_
+),
+Grade_num = suppressWarnings(as.numeric(grade)),
+Stage_num = suppressWarnings(as.numeric(stage))
+)
+```
+
+The  clinical variables are now properly encoded for correlation. Now, the merged table contains the clinical metadata and GSVA scores. We need to separated these so that we only run correlations on the GSVA pathway columns
+
+
+```{r Separation chunk}
+metadata_cols <- c(
+  "sample_numbers","tube_label","type","base_id","study_number",
+  "age","diagnosis","grade","lvi","stage","specimen type",
+  "neo adjuvant","er","specifity/range...10","intensity of staining...11",
+  "pr","specifity/range...13","intensity of staining...14",
+  "her2","score","ER_status","PR_status","HER2_status",
+  "Grade_num","Stage_num"
+)
+
+#Identify GSVA pathway columns(everything else)
+pathway_cols <- setdiff(colnames(corr_data), metadata_cols)
+
+#Checking the first few pathway names
+head(pathway_cols)
+
+```
+
+The chunk above creates a clean list of columns that represent Th17 GSVA pathways which I will use for correlation. This ensures only pathway scores are used in the statistical test. The next question is, Do Th17 pathway activity scores differ depending on ER/PR/HER2/grade/stage?
+
+```{r Correlation between Th17 pathway activity and clinical features}
+#Creating a correlation function
+correlate_feature <- function(feature_name) { #This defines a function that takes one clinical variable at a time
+  feature_values <- corr_data[[feature_name]] #This will make the clinical variable a vector of 1's and 0's
+  
+  results <- lapply(pathway_cols, function(path) {
+    pathway_values <- corr_data[[path]]
+    
+    #Dropping rows where either value is NA
+    valid_idx <- complete.cases(feature_values, pathway_values)
+    
+    #If fewer than 3 valid points, skip
+    if (sum(valid_idx) < 3) {
+      return(data.frame(
+        Pathway = path,
+        Feature = feature_name,
+        Correlation = NA,
+        Pvalue = NA
+      ))
+    }
+    
+    #Otherwise run correlation
+    cor_test <- cor.test(feature_values, corr_data[[path]], method = "spearman")
+    data.frame(
+      Pathway = path,
+      Feature = feature_name,
+      Correlation = cor_test$estimate,
+      Pvalue = cor_test$p.value
+    )
+  })
+  
+  do.call(rbind, results)
+}
+
+#Running the function across all clinical features
+all_corr_results <- rbind(
+  correlate_feature("ER_status"),
+  correlate_feature("PR_status"),
+  correlate_feature("HER2_status"),
+  correlate_feature("Grade_num"),
+  correlate_feature("Stage_num")
+)
+
+#Adjusting the p value
+all_corr_results$AdjP <- p.adjust(all_corr_results$Pvalue, method = "BH")
+head(all_corr_results)
+summary(all_corr_results)
+
+```
+
+From the above summar, I ran 400 correlation tests, 80 Th17 pathways and 5 clinical variables(ER,PR,HER2,Grade,Stage). 320 of them are NA, meaning many samples had a missing stage, many samples have missing grade, many samples have missug ER/PR/HER2. This is normal. For the remaining 80 correlations, all adjusted p-value = 0.9729, none of the correlations survived FDR correction. This does not mean no relation exists, it simply means, my sample size is too small to detect a statistically significant correction after adjusting fo multiple testing. Th17 pathway activation varies across tumors, but
+No statistically significant association is detectable between Th17 GSVA scores and ER/PR/HER2/grade/stage after FDR correction.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
